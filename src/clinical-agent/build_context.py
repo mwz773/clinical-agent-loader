@@ -8,6 +8,7 @@ This is the JSON fed into Bedrock
 import argparse
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import boto3
@@ -58,7 +59,15 @@ def main():
         "--output",
         default="care_coordination_context.json",
     )
+    parser.add_argument(
+        "--history-years",
+        type=int,
+        default=5,
+        help="Years of dated longitudinal history to include (default: 5).",
+    )
     args = parser.parse_args()
+    if args.history_years < 1:
+        parser.error("--history-years must be at least 1.")
 
     connection = get_connection()
 
@@ -188,6 +197,76 @@ def main():
             LIMIT 10
             """,
             (args.patient_id, current_note["note_date"]),
+        )
+
+        timeline_start = current_note["note_date"] - timedelta(
+            days=365 * args.history_years
+        )
+        timeline = fetch_all(
+            cursor,
+            """
+            SELECT *
+            FROM (
+                SELECT
+                    encounter_id AS resource_id,
+                    'Encounter' AS resource_type,
+                    start_at AS occurred_at,
+                    encounter_type AS description,
+                    encounter_class AS status,
+                    source_s3_key
+                FROM encounters
+                WHERE patient_id = %s
+                  AND start_at >= %s AND start_at <= %s
+
+                UNION ALL
+
+                SELECT
+                    condition_id AS resource_id,
+                    'Condition' AS resource_type,
+                    onset_at AS occurred_at,
+                    description,
+                    clinical_status AS status,
+                    source_s3_key
+                FROM conditions
+                WHERE patient_id = %s
+                  AND onset_at >= %s AND onset_at <= %s
+
+                UNION ALL
+
+                SELECT
+                    medication_request_id AS resource_id,
+                    'MedicationRequest' AS resource_type,
+                    authored_at AS occurred_at,
+                    description,
+                    status,
+                    source_s3_key
+                FROM medications
+                WHERE patient_id = %s
+                  AND authored_at >= %s AND authored_at <= %s
+
+                UNION ALL
+
+                SELECT
+                    event_id AS resource_id,
+                    resource_type,
+                    event_time AS occurred_at,
+                    description,
+                    status,
+                    source_s3_key
+                FROM clinical_events
+                WHERE patient_id = %s
+                  AND event_time >= %s AND event_time <= %s
+                  AND resource_type <> 'DiagnosticReport'
+            ) AS dated_records
+            ORDER BY occurred_at DESC, resource_id DESC
+            LIMIT 75
+            """,
+            (
+                args.patient_id, timeline_start, current_note["note_date"],
+                args.patient_id, timeline_start, current_note["note_date"],
+                args.patient_id, timeline_start, current_note["note_date"],
+                args.patient_id, timeline_start, current_note["note_date"],
+            ),
         )
 
         if prior_note:
@@ -338,6 +417,12 @@ def main():
         "active_conditions": active_conditions,
         "active_medications": active_medications,
         "events_since_prior_note": events,
+        "longitudinal_timeline": {
+            "history_years": args.history_years,
+            "window_start": timeline_start,
+            "window_end": current_note["note_date"],
+            "records": timeline,
+        },
         "changes_since_prior_note": {
         "comparison_available": prior_note is not None,
         "comparison_start": (
@@ -366,6 +451,7 @@ def main():
     print(f"New conditions: {len(new_conditions)}")
     print(f"Resolved conditions: {len(resolved_conditions)}")
     print(f"New medication records: {len(new_medication_records)}")
+    print(f"Timeline records ({args.history_years} years): {len(timeline)}")
 
 if __name__ == "__main__":
     main()

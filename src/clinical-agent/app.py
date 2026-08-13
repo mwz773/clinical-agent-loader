@@ -99,7 +99,7 @@ def run_script(command):
     return result.stdout.strip()
 
 
-def build_context(patient_id):
+def build_context(patient_id, history_years):
     with tempfile.TemporaryDirectory() as temporary_directory:
         context_path = Path(temporary_directory) / "context.json"
         run_script(
@@ -108,6 +108,8 @@ def build_context(patient_id):
                 str(CONTEXT_SCRIPT),
                 "--patient-id",
                 patient_id,
+                "--history-years",
+                str(history_years),
                 "--output",
                 str(context_path),
             ]
@@ -115,10 +117,21 @@ def build_context(patient_id):
         return json.loads(context_path.read_text(encoding="utf-8"))
 
 
+def load_persisted_brief(output_key):
+    """Read the exact validated artifact created by the current brief run."""
+    response = boto3.client("s3", region_name=os.environ["AWS_REGION"]).get_object(
+        Bucket=os.environ["PROCESSED_BUCKET"],
+        Key=output_key,
+    )
+    artifact = json.loads(response["Body"].read().decode("utf-8"))
+    return artifact["brief"]
+
+
 def format_record(record):
     description = record.get("description") or record.get("encounter_type") or "No description"
     timestamp = (
-        record.get("event_time")
+        record.get("occurred_at")
+        or record.get("event_time")
         or record.get("start_at")
         or record.get("onset_at")
         or record.get("abatement_at")
@@ -161,17 +174,31 @@ selected_id = st.selectbox(
         f"{patient_by_id[patient_id]['full_name']} — {patient_id}"
     ),
 )
+history_years = st.selectbox(
+    "History window",
+    options=[1, 3, 5, 10],
+    index=2,
+    format_func=lambda years: f"Last {years} years",
+)
 
-if st.button("Load patient context", type="primary") or st.session_state.get("selected_id") != selected_id:
+if st.button("Load patient context", type="primary") or (
+    st.session_state.get("selected_id") != selected_id
+    or st.session_state.get("history_years") != history_years
+):
     try:
-        st.session_state.context = build_context(selected_id)
+        st.session_state.context = build_context(selected_id, history_years)
         st.session_state.selected_id = selected_id
+        st.session_state.history_years = history_years
         st.session_state.pop("brief_result", None)
     except Exception as error:
         st.error(f"Unable to build context: {error}")
 
 context = st.session_state.get("context")
-if not context or st.session_state.get("selected_id") != selected_id:
+if (
+    not context
+    or st.session_state.get("selected_id") != selected_id
+    or st.session_state.get("history_years") != history_years
+):
     st.info("Select a patient, then choose **Load patient context**.")
     st.stop()
 
@@ -208,6 +235,22 @@ with st.expander("Current and prior notes"):
     else:
         st.caption("No prior note is available.")
 
+timeline = context["longitudinal_timeline"]
+with st.expander(f"Longitudinal timeline — last {timeline['history_years']} years"):
+    st.caption(
+        "Dated FHIR records are shown newest first. The model may use them as "
+        "historical context, but must still cite their resource IDs."
+    )
+    if not timeline["records"]:
+        st.caption("No dated records were found in this time window.")
+    for record in timeline["records"]:
+        st.markdown(
+            f"**{record['resource_type']} — "
+            f"{record.get('description') or 'No description'}**  \n"
+            f"{record.get('occurred_at') or 'No date'}  \n"
+            f"`{record['resource_id']}`"
+        )
+
 st.header("Care-coordination brief")
 st.caption("This action invokes Bedrock and writes a validated artifact to processed S3 and RDS.")
 
@@ -228,11 +271,51 @@ if st.button("Generate evidence-backed brief"):
                             str(context_path),
                         ]
                     )
-                st.session_state.brief_result = json.loads(output)
+                if not output:
+                    raise RuntimeError(
+                        "run_brief.py completed without returning run metadata. "
+                        "Verify the deployed script is the complete current version."
+                    )
+                run_metadata = json.loads(output)
+                if "processed_output_s3_key" not in run_metadata:
+                    raise RuntimeError(
+                        "run_brief.py returned unexpected metadata: "
+                        + json.dumps(run_metadata)
+                    )
+                st.session_state.brief_result = {
+                    "metadata": run_metadata,
+                    "brief": load_persisted_brief(
+                        run_metadata["processed_output_s3_key"]
+                    ),
+                }
             except Exception as error:
                 st.error(f"Brief generation failed: {error}")
 
 brief_result = st.session_state.get("brief_result")
 if brief_result:
-    st.success(f"Validated brief saved as `{brief_result['processed_output_s3_key']}`")
-    st.json(brief_result)
+    metadata = brief_result["metadata"]
+    brief = brief_result["brief"]
+    st.success(f"Validated brief saved as `{metadata['processed_output_s3_key']}`")
+
+    st.subheader("Change summary")
+    if brief["change_summary"]:
+        for change in brief["change_summary"]:
+            st.markdown(f"- {change}")
+    else:
+        st.caption("No material change was identified in the supplied context.")
+
+    st.subheader("Review items")
+    if not brief["review_items"]:
+        st.caption("No review items were generated. Human review is still required.")
+    for item in brief["review_items"]:
+        with st.container(border=True):
+            st.markdown(f"**{item['category'].replace('_', ' ').title()}**")
+            st.write(item["summary"])
+            st.caption(
+                "Confidence: "
+                f"{item['confidence']} · Evidence: "
+                + ", ".join(f"`{resource_id}`" for resource_id in item["evidence_resource_ids"])
+            )
+
+    with st.expander("Run metadata"):
+        st.json(metadata)

@@ -33,7 +33,12 @@ autonomous tasks. Return JSON only, with this exact top-level shape:
 }
 Every review item must cite at least one supplied evidence resource ID. If the
 context is insufficient, say so as a data_quality review item with the note ID
-as evidence. Do not include patient-identifying details beyond those already
+as evidence. Prioritize verified changes since the prior note. Use the
+longitudinal timeline only when it provides relevant historical context for a
+current change; do not create a review item solely because an older record
+exists. The input includes `allowed_evidence_resource_ids`: every citation
+must exactly match one of those values. Never cite `patient.patient_id` as
+evidence. Do not include patient-identifying details beyond those already
 needed to describe the evidence."""
 
 
@@ -77,6 +82,8 @@ def evidence_by_id(context):
     ):
         for item in context.get("changes_since_prior_note", {}).get(key, []):
             evidence[item["resource_id"]] = item
+    for item in context.get("longitudinal_timeline", {}).get("records", []):
+        evidence[item["resource_id"]] = item
     return evidence
 
 
@@ -205,6 +212,10 @@ def main():
     if not context.get("patient", {}).get("patient_id") or not context.get("current_note"):
         raise SystemExit("Context must contain patient and current_note fields.")
     allowed_evidence = evidence_by_id(context)
+    model_context = {
+        **context,
+        "allowed_evidence_resource_ids": sorted(allowed_evidence),
+    }
     run_id = str(uuid.uuid4())
     started = time.monotonic()
     connection = get_connection()
@@ -217,7 +228,7 @@ def main():
             system=[{"text": SYSTEM_PROMPT}],
             messages=[{
                 "role": "user",
-                "content": [{"text": json.dumps(context, default=str)}],
+                "content": [{"text": json.dumps(model_context, default=str)}],
             }],
             inferenceConfig={"maxTokens": 1000, "temperature": 0},
         )
