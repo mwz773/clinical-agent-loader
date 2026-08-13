@@ -191,6 +191,12 @@ def main():
         )
 
         if prior_note:
+            comparison_values = (
+                args.patient_id,
+                prior_note["note_date"],
+                current_note["note_date"],
+            )
+
             events = fetch_all(
                 cursor,
                 """
@@ -209,14 +215,98 @@ def main():
                 ORDER BY event_time DESC
                 LIMIT 20
                 """,
-                (
-                    args.patient_id,
-                    prior_note["note_date"],
-                    current_note["note_date"],
-                ),
+                comparison_values,
+            )
+
+            new_encounters = fetch_all(
+                cursor,
+                """
+                SELECT
+                    encounter_id AS resource_id,
+                    'Encounter' AS resource_type,
+                    start_at,
+                    end_at,
+                    encounter_class,
+                    encounter_type,
+                    source_s3_key
+                FROM encounters
+                WHERE patient_id = %s
+                  AND start_at > %s
+                  AND start_at <= %s
+                ORDER BY start_at DESC
+                LIMIT 10
+                """,
+                comparison_values,
+            )
+
+            new_conditions = fetch_all(
+                cursor,
+                """
+                SELECT
+                    condition_id AS resource_id,
+                    'Condition' AS resource_type,
+                    onset_at,
+                    clinical_status,
+                    code,
+                    description,
+                    source_s3_key
+                FROM conditions
+                WHERE patient_id = %s
+                  AND onset_at > %s
+                  AND onset_at <= %s
+                ORDER BY onset_at DESC
+                LIMIT 10
+                """,
+                comparison_values,
+            )
+
+            resolved_conditions = fetch_all(
+                cursor,
+                """
+                SELECT
+                    condition_id AS resource_id,
+                    'Condition' AS resource_type,
+                    abatement_at,
+                    clinical_status,
+                    code,
+                    description,
+                    source_s3_key
+                FROM conditions
+                WHERE patient_id = %s
+                  AND abatement_at > %s
+                  AND abatement_at <= %s
+                ORDER BY abatement_at DESC
+                LIMIT 10
+                """,
+                comparison_values,
+            )
+
+            new_medication_records = fetch_all(
+                cursor,
+                """
+                SELECT
+                    medication_request_id AS resource_id,
+                    'MedicationRequest' AS resource_type,
+                    authored_at,
+                    status,
+                    code,
+                    description,
+                    source_s3_key
+                FROM medications
+                WHERE patient_id = %s
+                  AND authored_at > %s
+                  AND authored_at <= %s
+                ORDER BY authored_at DESC
+                LIMIT 10
+                """,
+                comparison_values,
             )
         else:
             events = []
+            new_encounters = []
+            new_conditions = []
+            resolved_conditions = []
+            new_medication_records = []
 
     connection.close()
 
@@ -248,6 +338,18 @@ def main():
         "active_conditions": active_conditions,
         "active_medications": active_medications,
         "events_since_prior_note": events,
+        "changes_since_prior_note": {
+        "comparison_available": prior_note is not None,
+        "comparison_start": (
+            prior_note["note_date"] if prior_note else None
+        ),
+        "comparison_end": current_note["note_date"],
+        "new_encounters": new_encounters,
+        "new_conditions": new_conditions,
+        "resolved_conditions": resolved_conditions,
+        "new_medication_records": new_medication_records,
+        "clinical_events": events,
+        },
     }
 
     output = Path(args.output)
@@ -260,7 +362,10 @@ def main():
     print(f"Current note: {current_note['note_id']}")
     print(f"Prior note found: {bool(prior_note)}")
     print(f"Events since prior note: {len(events)}")
-
+    print(f"New encounters: {len(new_encounters)}")
+    print(f"New conditions: {len(new_conditions)}")
+    print(f"Resolved conditions: {len(resolved_conditions)}")
+    print(f"New medication records: {len(new_medication_records)}")
 
 if __name__ == "__main__":
     main()
