@@ -146,6 +146,47 @@ def ask_patient_question(context, question):
     return json.loads(output)
 
 
+def evidence_by_id(context):
+    """Index only records supplied in the active bounded patient context."""
+    records = {}
+    for record in (context.get("current_note"), context.get("prior_note")):
+        if record:
+            records[record["resource_id"]] = record
+
+    for section in (
+        "recent_encounters",
+        "active_conditions",
+        "active_medications",
+        "events_since_prior_note",
+    ):
+        for record in context.get(section, []):
+            records[record["resource_id"]] = record
+
+    for section in (
+        "new_encounters",
+        "new_conditions",
+        "resolved_conditions",
+        "new_medication_records",
+        "clinical_events",
+    ):
+        for record in context.get("changes_since_prior_note", {}).get(section, []):
+            records[record["resource_id"]] = record
+
+    for record in context.get("longitudinal_timeline", {}).get("records", []):
+        records[record["resource_id"]] = record
+    return records
+
+
+def render_evidence_controls(evidence_ids, key_prefix):
+    """Show citations and allow a user to open one in the side inspector."""
+    for index, resource_id in enumerate(evidence_ids):
+        left, right = st.columns([5, 1])
+        left.caption(f"Evidence: `{resource_id}`")
+        if right.button("View", key=f"{key_prefix}-{index}-{resource_id}"):
+            st.session_state.selected_evidence_id = resource_id
+            st.rerun()
+
+
 def format_record(record):
     description = record.get("description") or record.get("encounter_type") or "No description"
     timestamp = (
@@ -210,6 +251,7 @@ if st.button("Load patient context", type="primary") or (
         st.session_state.history_years = history_years
         st.session_state.pop("brief_result", None)
         st.session_state.chat_messages = []
+        st.session_state.pop("selected_evidence_id", None)
     except Exception as error:
         st.error(f"Unable to build context: {error}")
 
@@ -223,6 +265,33 @@ if (
     st.stop()
 
 patient = context["patient"]
+context_evidence = evidence_by_id(context)
+
+with st.sidebar:
+    st.header("Evidence inspector")
+    st.caption("Select **View** beside a citation to inspect its bounded source record.")
+    selected_evidence_id = st.session_state.get("selected_evidence_id")
+    selected_record = context_evidence.get(selected_evidence_id)
+    if not selected_record:
+        st.info("No evidence record selected.")
+    else:
+        st.subheader(selected_record.get("resource_type", "FHIR record"))
+        st.caption(f"Resource ID: `{selected_evidence_id}`")
+        if selected_record.get("source_s3_key"):
+            st.caption(f"Source: `{selected_record['source_s3_key']}`")
+        if selected_record.get("note_text"):
+            st.text_area(
+                "Decoded clinical note",
+                selected_record["note_text"],
+                height=320,
+                disabled=True,
+            )
+        with st.expander("Record fields", expanded=not selected_record.get("note_text")):
+            st.json(selected_record)
+        if st.button("Clear selected record"):
+            st.session_state.pop("selected_evidence_id", None)
+            st.rerun()
+
 st.header("Patient context")
 details = st.columns(4)
 details[0].metric("Patient ID", patient["patient_id"])
@@ -332,9 +401,11 @@ if brief_result:
             st.markdown(f"**{item['category'].replace('_', ' ').title()}**")
             st.write(item["summary"])
             st.caption(
-                "Confidence: "
-                f"{item['confidence']} · Evidence: "
-                + ", ".join(f"`{resource_id}`" for resource_id in item["evidence_resource_ids"])
+                f"Confidence: {item['confidence']}"
+            )
+            render_evidence_controls(
+                item["evidence_resource_ids"],
+                f"brief-{metadata['run_id']}",
             )
 
     with st.expander("Run metadata"):
@@ -350,13 +421,13 @@ st.caption(
 if "chat_messages" not in st.session_state:
     st.session_state.chat_messages = []
 
-for message in st.session_state.chat_messages:
+for message_index, message in enumerate(st.session_state.chat_messages):
     with st.chat_message(message["role"]):
         st.write(message["content"])
         if message["role"] == "assistant" and message.get("evidence_ids"):
-            st.caption(
-                "Evidence: "
-                + ", ".join(f"`{resource_id}`" for resource_id in message["evidence_ids"])
+            render_evidence_controls(
+                message["evidence_ids"],
+                f"chat-{message_index}",
             )
 
 question = st.chat_input("Ask about documented patient history in this time window")
@@ -371,12 +442,9 @@ if question:
                 answer = ask_patient_question(context, question)
                 st.write(answer["answer"])
                 if answer["evidence_resource_ids"]:
-                    st.caption(
-                        "Evidence: "
-                        + ", ".join(
-                            f"`{resource_id}`"
-                            for resource_id in answer["evidence_resource_ids"]
-                        )
+                    render_evidence_controls(
+                        answer["evidence_resource_ids"],
+                        f"new-chat-{len(st.session_state.chat_messages)}",
                     )
                 st.session_state.chat_messages.append(
                     {

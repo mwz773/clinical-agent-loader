@@ -1,4 +1,9 @@
- __pycache__/
+__pycache__/
 *.pyc
 .env
+.env.sh
 .venv/
+.DS_Store
+*.pkg
+clinical-agent-data/
+variables.txt
