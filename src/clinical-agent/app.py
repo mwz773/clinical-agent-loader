@@ -20,6 +20,7 @@ import streamlit as st
 APP_DIR = Path(__file__).resolve().parent
 CONTEXT_SCRIPT = APP_DIR / "build_context.py"
 BRIEF_SCRIPT = APP_DIR / "run_brief.py"
+CHAT_SCRIPT = APP_DIR / "ask_patient_question.py"
 
 
 def get_connection():
@@ -127,6 +128,24 @@ def load_persisted_brief(output_key):
     return artifact["brief"]
 
 
+def ask_patient_question(context, question):
+    """Use the validated command-line chatbot with the current UI context."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        context_path = Path(temporary_directory) / "context.json"
+        context_path.write_text(json.dumps(context, default=str), encoding="utf-8")
+        output = run_script(
+            [
+                sys.executable,
+                str(CHAT_SCRIPT),
+                "--context",
+                str(context_path),
+                "--question",
+                question,
+            ]
+        )
+    return json.loads(output)
+
+
 def format_record(record):
     description = record.get("description") or record.get("encounter_type") or "No description"
     timestamp = (
@@ -190,6 +209,7 @@ if st.button("Load patient context", type="primary") or (
         st.session_state.selected_id = selected_id
         st.session_state.history_years = history_years
         st.session_state.pop("brief_result", None)
+        st.session_state.chat_messages = []
     except Exception as error:
         st.error(f"Unable to build context: {error}")
 
@@ -319,3 +339,51 @@ if brief_result:
 
     with st.expander("Run metadata"):
         st.json(metadata)
+
+st.header("Patient-history chat")
+st.caption(
+    "Answers are limited to this selected synthetic patient's loaded "
+    f"{timeline['history_years']}-year context. The tool does not diagnose, "
+    "recommend treatment, assess urgency, or take actions."
+)
+
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+
+for message in st.session_state.chat_messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+        if message["role"] == "assistant" and message.get("evidence_ids"):
+            st.caption(
+                "Evidence: "
+                + ", ".join(f"`{resource_id}`" for resource_id in message["evidence_ids"])
+            )
+
+question = st.chat_input("Ask about documented patient history in this time window")
+if question:
+    st.session_state.chat_messages.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.write(question)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Searching bounded patient history..."):
+            try:
+                answer = ask_patient_question(context, question)
+                st.write(answer["answer"])
+                if answer["evidence_resource_ids"]:
+                    st.caption(
+                        "Evidence: "
+                        + ", ".join(
+                            f"`{resource_id}`"
+                            for resource_id in answer["evidence_resource_ids"]
+                        )
+                    )
+                st.session_state.chat_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": answer["answer"],
+                        "evidence_ids": answer["evidence_resource_ids"],
+                    }
+                )
+            except Exception as error:
+                st.error(f"Unable to answer patient-history question: {error}")
