@@ -45,3 +45,28 @@ variable "private_subnet_secondary_cidr" {
   type        = string
   default     = "10.20.3.0/24"
 }
+
+variable "database_name" {
+  type    = string
+  default = "clinical_agent"
+}
+
+variable "database_username" {
+  type    = string
+  default = "postgres"
+}
+
+variable "database_engine_version" {
+  type    = string
+  default = "18.3"
+}
+
+variable "database_instance_class" {
+  type    = string
+  default = "db.t3.micro"
+}
+
+variable "ec2_instance_type" {
+  type    = string
+  default = "t3.micro"
+}

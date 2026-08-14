@@ -48,3 +48,30 @@ output "private_subnet_ids" {
   description = "Private subnets used by the future RDS DB subnet group."
   value       = module.network.private_subnet_ids
 }
+
+output "database_endpoint" {
+  description = "Private hostname for the Terraform-managed RDS database."
+  value       = module.database.endpoint
+}
+
+output "database_port" {
+  value = module.database.port
+}
+
+output "database_name" {
+  value = module.database.database_name
+}
+
+output "database_secret_arn" {
+  description = "Secrets Manager ARN containing the RDS master credentials."
+  value       = module.database.master_user_secret_arn
+}
+
+output "ec2_instance_id" {
+  description = "Instance ID for Session Manager connections."
+  value       = module.compute.instance_id
+}
+
+output "ec2_private_ip" {
+  value = module.compute.private_ip
+}

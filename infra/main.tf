@@ -34,4 +34,29 @@ module "iam" {
   processed_bucket_arn = module.storage.processed_bucket_arn
   aws_region           = var.aws_region
   bedrock_model_id     = var.bedrock_model_id
+  db_secret_arn        = module.database.master_user_secret_arn
 }
+
+module "compute" {
+  source = "./modules/compute"
+
+  name_prefix           = local.resource_prefix
+  public_subnet_id      = module.network.public_subnet_id
+  ec2_security_group_id = module.security.ec2_security_group_id
+  instance_profile_name = module.iam.instance_profile_name
+  instance_type         = var.ec2_instance_type
+}
+
+module "database" {
+  source = "./modules/database"
+
+  name_prefix                = local.resource_prefix
+  private_subnet_ids         = module.network.private_subnet_ids
+  database_security_group_id = module.security.database_security_group_id
+
+  database_name           = var.database_name
+  database_username       = var.database_username
+  database_engine_version = var.database_engine_version
+  database_instance_class = var.database_instance_class
+}
+
