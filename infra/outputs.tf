@@ -17,3 +17,34 @@ output "availability_zone" {
   description = "Single Availability Zone used by this learning stack."
   value       = module.network.availability_zone
 }
+
+output "ec2_security_group_id" {
+  description = "Security group ID for the future EC2 host."
+  value       = module.security.ec2_security_group_id
+}
+
+output "database_security_group_id" {
+  description = "Security group ID for the future RDS instance."
+  value       = module.security.database_security_group_id
+}
+
+output "raw_bucket_name" {
+  description = "Terraform-managed source FHIR bucket name."
+  value       = module.storage.raw_bucket_name
+}
+
+output "processed_bucket_name" {
+  description = "Terraform-managed processed-output bucket name."
+  value       = module.storage.processed_bucket_name
+}
+
+
+output "ec2_instance_profile_name" {
+  description = "Instance profile for the future EC2 host."
+  value       = module.iam.instance_profile_name
+}
+
+output "private_subnet_ids" {
+  description = "Private subnets used by the future RDS DB subnet group."
+  value       = module.network.private_subnet_ids
+}

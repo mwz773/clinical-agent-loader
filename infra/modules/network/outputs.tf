@@ -13,3 +13,10 @@ output "private_subnet_id" {
 output "availability_zone" {
   value = local.availability_zone
 }
+
+output "private_subnet_ids" {
+  value = [
+    aws_subnet.private.id,
+    aws_subnet.private_secondary.id,
+  ]
+}

@@ -47,6 +47,16 @@ resource "aws_subnet" "private" {
   }
 }
 
+resource "aws_subnet" "private_secondary" {
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = var.private_subnet_secondary_cidr
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = {
+    Name = "${var.name_prefix}-private-2"
+    Tier = "private"
+  }
+}
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
@@ -58,6 +68,11 @@ resource "aws_route_table" "public" {
   tags = {
     Name = "${var.name_prefix}-public-rt"
   }
+}
+
+resource "aws_route_table_association" "private_secondary" {
+  subnet_id      = aws_subnet.private_secondary.id
+  route_table_id = aws_route_table.private.id
 }
 
 resource "aws_route_table_association" "public" {

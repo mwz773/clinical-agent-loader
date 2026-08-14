@@ -33,3 +33,15 @@ variable "private_subnet_cidr" {
   type        = string
   default     = "10.20.2.0/24"
 }
+
+variable "bedrock_model_id" {
+  description = "Bedrock model ID permitted for the EC2 role."
+  type        = string
+  default     = "amazon.nova-micro-v1:0"
+}
+
+variable "private_subnet_secondary_cidr" {
+  description = "IPv4 CIDR block for the second private subnet used by RDS."
+  type        = string
+  default     = "10.20.3.0/24"
+}
