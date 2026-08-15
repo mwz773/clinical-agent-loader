@@ -396,7 +396,7 @@ if brief_result:
     st.subheader("Review items")
     if not brief["review_items"]:
         st.caption("No review items were generated. Human review is still required.")
-    for item in brief["review_items"]:
+    for item_index, item in enumerate(brief["review_items"]):
         with st.container(border=True):
             st.markdown(f"**{item['category'].replace('_', ' ').title()}**")
             st.write(item["summary"])
@@ -405,7 +405,7 @@ if brief_result:
             )
             render_evidence_controls(
                 item["evidence_resource_ids"],
-                f"brief-{metadata['run_id']}",
+                f"brief-{metadata['run_id']}-{item_index}",
             )
 
     with st.expander("Run metadata"):

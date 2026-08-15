@@ -18,3 +18,7 @@ variable "bedrock_model_id" {
   type    = string
   default = "amazon.nova-micro-v1:0"
 }
+
+variable "db_secret_arn" {
+  type = string
+}

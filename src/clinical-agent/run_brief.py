@@ -39,7 +39,8 @@ current change; do not create a review item solely because an older record
 exists. The input includes `allowed_evidence_resource_ids`: every citation
 must exactly match one of those values. Never cite `patient.patient_id` as
 evidence. Do not include patient-identifying details beyond those already
-needed to describe the evidence."""
+needed to describe the evidence. `change_summary` must always be a JSON list,
+even when it contains only one item."""
 
 
 def get_connection():
@@ -87,18 +88,38 @@ def evidence_by_id(context):
     return evidence
 
 
-def model_json(response):
-    text = "".join(
+def model_text(response):
+    return "".join(
         block["text"]
         for block in response["output"]["message"]["content"]
         if "text" in block
     ).strip()
+
+
+def parse_model_json(text):
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError as error:
         raise ValueError("Bedrock response was not valid JSON") from error
+
+
+def normalize_brief(brief):
+    """Normalize one safe Bedrock formatting variation before validation."""
+    if isinstance(brief, dict) and isinstance(brief.get("change_summary"), str):
+        return {**brief, "change_summary": [brief["change_summary"]]}
+    return brief
+
+
+def repair_prompt(validation_error):
+    return (
+        "The prior JSON response failed application validation: "
+        f"{validation_error}. Return only a corrected JSON response with the exact "
+        "required schema. Use only allowed evidence resource IDs. Every review item "
+        "must have one or more evidence_resource_ids; remove an item if it cannot be "
+        "supported. Keep human_review_required set to true."
+    )
 
 
 def validate_brief(brief, allowed_evidence):
@@ -233,8 +254,28 @@ def main():
             inferenceConfig={"maxTokens": 1000, "temperature": 0},
         )
         latency_ms = round((time.monotonic() - started) * 1000)
-        brief = model_json(response)
-        validate_brief(brief, allowed_evidence)
+        initial_text = model_text(response)
+        try:
+            brief = normalize_brief(parse_model_json(initial_text))
+            validate_brief(brief, allowed_evidence)
+        except ValueError as initial_error:
+            response = boto3.client(
+                "bedrock-runtime", region_name=os.environ["AWS_REGION"]
+            ).converse(
+                modelId=args.model_id,
+                system=[{"text": SYSTEM_PROMPT}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [{"text": json.dumps(model_context, default=str)}],
+                    },
+                    {"role": "assistant", "content": [{"text": initial_text}]},
+                    {"role": "user", "content": [{"text": repair_prompt(initial_error)}]},
+                ],
+                inferenceConfig={"maxTokens": 1000, "temperature": 0},
+            )
+            brief = normalize_brief(parse_model_json(model_text(response)))
+            validate_brief(brief, allowed_evidence)
         output_key = f"{args.output_prefix.strip('/')}/{run_id}.json"
         output = {
             "run_id": run_id,

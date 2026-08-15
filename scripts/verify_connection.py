@@ -14,9 +14,9 @@ secret = json.loads(
 )
 
 connection = psycopg2.connect(
-    host=secret["host"],
-    port=secret.get("port", 5432),
-    dbname=secret.get("dbname", "clinical_agent"),
+    host=os.environ["DB_HOST"],
+    port=os.environ.get("DB_PORT", "5432"),
+    dbname=os.environ.get("DB_NAME", "clinical_agent"),
     user=secret["username"],
     password=secret["password"],
     sslmode="require",

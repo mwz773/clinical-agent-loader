@@ -35,6 +35,18 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 
 data "aws_iam_policy_document" "application" {
   statement {
+    sid    = "ReadDatabaseCredentials"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:GetSecretValue"
+    ]
+
+    resources = [
+      var.db_secret_arn
+    ]
+  }
+  statement {
     sid    = "ListClinicalAgentBuckets"
     effect = "Allow"
 

@@ -6,4 +6,12 @@ __pycache__/
 .DS_Store
 *.pkg
 clinical-agent-data/
+synthea/
 variables.txt
+
+# Terraform local files
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/*.tfvars
+!infra/*.tfvars.example

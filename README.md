@@ -1,4 +1,89 @@
-# Clinical agent loader
+# Longitudinal Care-Coordination Agent
+
+A private, synthetic-data-only clinical workflow prototype that helps a human
+care coordinator review longitudinal FHIR records. The application retrieves a
+bounded patient history from PostgreSQL, generates an evidence-linked brief
+with Amazon Bedrock, and provides a patient-history chatbot that refuses
+diagnosis, prescribing, treatment, triage, and other out-of-scope requests.
+
+> This is a learning project using Synthea synthetic data only. It is not a
+> clinical decision-support system and every generated result requires human
+> review.
+
+## Highlights
+
+- Loaded and queried 1,000+ synthetic Synthea patient records represented as
+  FHIR bundles.
+- Builds 1-, 3-, 5-, or 10-year bounded context windows rather than sending a
+  full chart to the model.
+- Validates model JSON, evidence IDs, and human-review requirements before a
+  brief is shown or persisted.
+- Uses a private AWS deployment: EC2 has no inbound rules and the Streamlit UI
+  is accessed through an SSM port-forward.
+- Defines the VPC, security groups, S3 buckets, IAM role, RDS database, and
+  EC2 host as modular Terraform configuration.
+
+## Architecture
+
+```text
+Synthea FHIR bundles
+        |
+        v
+   S3 raw bucket --> EC2 loader --> RDS PostgreSQL
+                                      |
+                                      v
+                         bounded multi-year context builder
+                                      |
+                                      v
+                           Amazon Bedrock (Nova Micro)
+                                      |
+                         validated brief + cited evidence
+                              |                    |
+                              v                    v
+                    S3 processed bucket      Streamlit via SSM
+```
+
+See [architecture documentation](docs/architecture.md), [technical
+documentation](docs/technical-documentation.md), and the [database
+explanation](data_explanation.txt).
+
+## Application walkthrough
+
+### Patient dashboard
+
+![Patient dashboard](screenshots/home_screen.png)
+
+### Configurable longitudinal history window
+
+![History-window selector](screenshots/history_window.png)
+
+### Patient history and evidence-backed responses
+
+![Chatbot example](screenshots/chatbot_example.png)
+
+### Safety boundary for clinical advice
+
+![Clinical-advice refusal](screenshots/client_refusal.png)
+
+### Patient data available for context construction
+
+![Patient statistics](screenshots/patient_stats.png)
+
+## Safety and grounding boundaries
+
+- Uses only the selected patient's supplied bounded context.
+- Every brief review item must cite an allowed FHIR resource ID.
+- Every chat answer must cite one to five allowed resource IDs.
+- Rejects malformed model output after one constrained repair attempt.
+- Requires human review and never diagnoses, prescribes, triages, or acts
+  autonomously.
+
+## Technology
+
+Python, Streamlit, PostgreSQL on Amazon RDS, Amazon EC2, Amazon S3, Amazon
+Bedrock, AWS Systems Manager, Secrets Manager, IAM, and Terraform.
+
+## Run the Streamlit demonstration
 
 ## Generate an evidence-backed Bedrock brief
 
