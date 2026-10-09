@@ -25,8 +25,7 @@ infra/
 | `iam` | EC2 role/instance profile and scoped permissions for S3, Secrets Manager, Bedrock, and SSM |
 | `database` | Private single-AZ RDS PostgreSQL instance, subnet group, managed master password in Secrets Manager |
 | `compute` | EC2 instance, Amazon Linux AMI lookup, instance profile, security group, and EBS settings |
-| `observability` *(later)* | CloudWatch log groups, billing alarm, and chatbot/brief evaluation metrics |
-| `app` *(later, optional)* | A deployment mechanism for the Streamlit application—likely still EC2-based for this project |
+| `observability`  | CloudWatch log groups, billing alarm, and chatbot/brief evaluation metrics |
 
 
 The root infra/main.tf connects them:
